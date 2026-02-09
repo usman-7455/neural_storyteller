@@ -1,8 +1,8 @@
 --extra-index-url https://download.pytorch.org/whl/cpu
 
-streamlit==1.29.0
+streamlit
 torch==2.0.1+cpu
-torchvision==0.15.2+cpu
-numpy==1.24.4
-pillow==9.5.0
-huggingface_hub==0.19.4
+torchvision
+numpy
+pillow
+huggingface_hub
