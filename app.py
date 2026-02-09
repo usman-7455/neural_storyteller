@@ -179,7 +179,7 @@ def load_captioning_model():
         
         with st.spinner("🔄 Loading feature extractor..."):
             # Load ResNet50 for feature extraction
-            resnet = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
+            resnet = models.resnet50(weights=None)
             resnet = nn.Sequential(*list(resnet.children())[:-1])
             resnet.eval()
             resnet = resnet.to(device)
