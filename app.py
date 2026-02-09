@@ -9,6 +9,7 @@ from huggingface_hub import hf_hub_download
 import tempfile
 import os
 
+torch.set_num_threads(1)
 # ========================================
 # PAGE CONFIGURATION
 # ========================================
