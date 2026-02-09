@@ -8,8 +8,67 @@ from torchvision import models
 from huggingface_hub import hf_hub_download
 import tempfile
 import os
+from collections import Counter  # Required for Vocabulary.build_vocabulary
 
 torch.set_num_threads(1)
+
+# ========================================
+# CRITICAL: Vocabulary class MUST be defined BEFORE pickle.load()
+# ========================================
+class Vocabulary:
+    """Must match training notebook EXACTLY for pickle deserialization"""
+    def __init__(self, freq_threshold=5):
+        self.freq_threshold = freq_threshold
+        self.stoi = {
+            '<pad>': 0,
+            '<start>': 1,
+            '<end>': 2,
+            '<unk>': 3
+        }
+        self.itos = {v: k for k, v in self.stoi.items()}
+        self.vocab_size = 4
+    
+    @staticmethod
+    def clean_caption(caption):
+        caption = caption.lower().strip()
+        caption = ''.join(c for c in caption if c.isalnum() or c.isspace())
+        return caption.strip()
+    
+    @staticmethod
+    def tokenize(caption):
+        return Vocabulary.clean_caption(caption).split()
+    
+    def build_vocabulary(self, captions):
+        frequencies = Counter()
+        tokens = []
+        for caption in captions:
+            caption_tokens = self.tokenize(caption)
+            tokens.extend(caption_tokens)
+            frequencies.update(caption_tokens)
+        
+        for token, freq in frequencies.items():
+            if freq >= self.freq_threshold and token not in self.stoi:
+                self.stoi[token] = self.vocab_size
+                self.itos[self.vocab_size] = token
+                self.vocab_size += 1
+    
+    def numericalize(self, caption):
+        tokens = self.tokenize(caption)
+        return (
+            [self.stoi['<start>']] + 
+            [self.stoi.get(token, self.stoi['<unk>']) for token in tokens] + 
+            [self.stoi['<end>']]
+        )
+    
+    def decode(self, sequence):
+        tokens = []
+        for idx in sequence:
+            if idx == self.stoi['<pad>']:
+                break
+            if idx not in [self.stoi['<start>'], self.stoi['<end>'], self.stoi['<pad>']]:
+                tokens.append(self.itos.get(idx, '<unk>'))
+        return ' '.join(tokens)
+
 # ========================================
 # PAGE CONFIGURATION
 # ========================================
@@ -155,7 +214,7 @@ def load_captioning_model():
             )
         
         with st.spinner("🔄 Loading vocabulary..."):
-            # Load vocabulary
+            # Load vocabulary - Vocabulary class is NOW defined above!
             with open(vocab_path, 'rb') as f:
                 vocab = pickle.load(f)
         
