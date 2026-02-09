@@ -5,15 +5,15 @@ import pickle
 from PIL import Image
 import torchvision.transforms as transforms
 from torchvision import models
+from torchvision.models import ResNet50_Weights  # ✅ REQUIRED FOR PRETRAINED WEIGHTS
 from huggingface_hub import hf_hub_download
-import tempfile
+from collections import Counter  # ✅ REQUIRED FOR VOCABULARY
 import os
-from collections import Counter  # Required for Vocabulary.build_vocabulary
 
 torch.set_num_threads(1)
 
 # ========================================
-# CRITICAL: Vocabulary class MUST be defined BEFORE pickle.load()
+# CRITICAL: Vocabulary class MUST be defined FIRST (before pickle.load)
 # ========================================
 class Vocabulary:
     """Must match training notebook EXACTLY for pickle deserialization"""
@@ -99,7 +99,6 @@ class Decoder(nn.Module):
         self.fc = nn.Linear(hidden_size, vocab_size)
     
     def forward(self, encoder_hidden, captions, tf_ratio=0.5):
-        # Training forward pass (not used in inference)
         batch_size, seq_len = captions.size()
         outputs = torch.zeros(batch_size, seq_len, self.fc.out_features).to(encoder_hidden.device)
         input_token = captions[:, 0].unsqueeze(1)
@@ -126,9 +125,9 @@ class Seq2Seq(nn.Module):
         return self.decoder(self.encoder(img_feats), captions, tf_ratio)
 
 # ========================================
-# BEAM SEARCH INFERENCE
+# BEAM SEARCH INFERENCE (with .clone() fix)
 # ========================================
-def beam_search(model, img_features, vocab, max_len=30, beam_width=3, device='cuda'):
+def beam_search(model, img_features, vocab, max_len=30, beam_width=3, device='cpu'):
     """
     Beam search decoding for caption generation
     """
@@ -171,8 +170,8 @@ def beam_search(model, img_features, vocab, max_len=30, beam_width=3, device='cu
                     candidates.append({
                         'seq': beam['seq'] + [topk_idxs[i].item()],
                         'score': beam['score'] + topk_vals[i].item(),
-                        'hidden': new_hidden,
-                        'cell': new_cell
+                        'hidden': new_hidden.clone(),  # ✅ CLONE TO PREVENT STATE SHARING
+                        'cell': new_cell.clone()       # ✅ CRITICAL FOR CORRECT BEAM SEARCH
                     })
             
             # Sort by normalized score and keep top-k
@@ -204,13 +203,13 @@ def load_captioning_model():
             model_path = hf_hub_download(
                 repo_id="zentom/neural_story_teller",
                 filename="best_model.pth",
-                cache_dir="model_cache"
+                cache_dir="/tmp/model_cache"
             )
             
             vocab_path = hf_hub_download(
                 repo_id="zentom/neural_story_teller",
                 filename="vocab.pkl",
-                cache_dir="model_cache"
+                cache_dir="/tmp/model_cache"
             )
         
         with st.spinner("🔄 Loading vocabulary..."):
@@ -219,8 +218,8 @@ def load_captioning_model():
                 vocab = pickle.load(f)
         
         with st.spinner("🔄 Initializing model architecture..."):
-            # Initialize model
-            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            # Initialize model - Streamlit Cloud has NO GPU
+            device = torch.device('cpu')  # ✅ FORCE CPU (no GPU on Streamlit Cloud)
             model = Seq2Seq(
                 Encoder(hidden_size=512),
                 Decoder(vocab_size=vocab.vocab_size, embed_size=256, hidden_size=512)
@@ -237,9 +236,9 @@ def load_captioning_model():
             model.load_state_dict(state_dict)
             model.eval()
         
-        with st.spinner("🔄 Loading feature extractor..."):
-            # Load ResNet50 for feature extraction
-            resnet = models.resnet50(weights=None)
+        with st.spinner("🔄 Loading PRETRAINED feature extractor..."):  # ✅ KEY FIX
+            # USE PRETRAINED WEIGHTS (matches training setup)
+            resnet = models.resnet50(weights=ResNet50_Weights.DEFAULT)  # ✅ NOT weights=None!
             resnet = nn.Sequential(*list(resnet.children())[:-1])
             resnet.eval()
             resnet = resnet.to(device)
